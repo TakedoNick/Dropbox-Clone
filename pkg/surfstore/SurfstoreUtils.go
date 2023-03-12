@@ -191,6 +191,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 		} else if ok && fmeta.Version > val.Version {
 
 			// file in server present in local index and has a newer version on server
+			fmt.Println("file in server present in local index and has a newer version on server")
 			if len(fmeta.BlockHashList) == 1 && fmeta.BlockHashList[0] == "0" {
 				if err := os.Remove(ConcatPath(client.BaseDir, fname)); err != nil {
 					fmt.Println("Deleting local file failed!", err)

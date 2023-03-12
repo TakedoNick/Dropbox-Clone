@@ -420,7 +420,7 @@ func (s *RaftSurfstore) SetLeader(ctx context.Context, _ *emptypb.Empty) (*Succe
 	leaderLastLogIndex := int64(len(s.log)) - 1
 	for server_no := range serverIPs {
 		s.nextIndex[int64(server_no)] = leaderLastLogIndex + 1
-		s.matchIndex[int64(server_no)] = -1
+		s.matchIndex[int64(server_no)] = leaderLastLogIndex
 	}
 
 	return &Success{Flag: true}, nil
