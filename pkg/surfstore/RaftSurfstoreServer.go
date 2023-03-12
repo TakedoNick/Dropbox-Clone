@@ -171,10 +171,31 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// keep trying indefinitely (even after responding) ** rely on sendheartbeat
 
-	// commit the entry once majority of followers have it in their log
+	// s.isLeaderMutex.RLock()
+
+	// ips := s.raftServerAddrs
+	// leaderId := s.thisServerId
+
+	// s.isLeaderMutex.RUnlock()
+
+	// // commit the entry once majority of followers have it in their log
+	// for serverId := range ips {
+	// 	if serverId == int(leaderId) {
+	// 		continue
+	// 	}
+	// 	commit := <-*s.pendingCommits[serverId]
+
+	// 	if !commit {
+	// 		continue
+	// 	} else {
+	// 		return s.metaStore.UpdateFile(ctx, filemeta)
+	// 	}
+	// }
+
 	commit := <-commitChan
 
 	// once committed, apply to the state machine
+
 	if commit {
 		return s.metaStore.UpdateFile(ctx, filemeta)
 	}
@@ -220,7 +241,7 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 	s.isFollowerMutex.Lock()
 	if totalAppends > len(s.raftServerAddrs)/2 {
 		// TODO put on correct channel
-		*s.pendingCommits[serverID] <- true
+		*s.pendingCommits[0] <- true
 		// TODO update commit Index correctly
 		s.commitIndex = int64(len(curLog) - 1)
 	}
@@ -259,46 +280,44 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 	r := NewRaftSurfstoreClient(conn)
 
-	for {
-		val, err := r.AppendEntries(ctx, &currentInput)
+	val, err := r.AppendEntries(ctx, &currentInput)
 
-		if err != nil {
-			responses <- false
-			conn.Close()
-			continue
-		}
-
-		s.isFollowerMutex.RLock()
-		currentTerm := s.term
-		s.isFollowerMutex.RUnlock()
-
-		if !val.Success {
-			if val.Term > currentTerm {
-				// Term out of date -> update term
-				s.isFollowerMutex.Lock()
-				s.term = val.Term
-				s.isLeader = false
-				s.isFollowerMutex.Unlock()
-			}
-			s.isFollowerMutex.Lock()
-			s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-			s.isFollowerMutex.Unlock()
-			responses <- false
-			conn.Close()
-			continue
-
-		} else {
-			// if success from Append Entry -> update nextIndex and matchIndex for the follower
-			s.isFollowerMutex.Lock()
-			s.nextIndex[serverId] = val.MatchedIndex + 1
-			s.matchIndex[serverId] = val.MatchedIndex
-			s.isFollowerMutex.Unlock()
-			responses <- true
-			conn.Close()
-			break
-		}
-
+	if err != nil {
+		responses <- false
+		conn.Close()
+		return
 	}
+
+	s.isFollowerMutex.RLock()
+	currentTerm := s.term
+	s.isFollowerMutex.RUnlock()
+
+	if !val.Success {
+		if val.Term > currentTerm {
+			// Term out of date -> update term
+			s.isFollowerMutex.Lock()
+			s.term = val.Term
+			s.isLeader = false
+			s.isFollowerMutex.Unlock()
+		}
+		s.isFollowerMutex.Lock()
+		s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+		s.isFollowerMutex.Unlock()
+		responses <- false
+		conn.Close()
+		return
+
+	} else {
+		// if success from Append Entry -> update nextIndex and matchIndex for the follower
+		s.isFollowerMutex.Lock()
+		s.nextIndex[serverId] = val.MatchedIndex + 1
+		s.matchIndex[serverId] = val.MatchedIndex
+		s.isFollowerMutex.Unlock()
+		responses <- true
+		conn.Close()
+		return
+	}
+
 }
 
 // 1. Reply false if term < currentTerm (§5.1)
