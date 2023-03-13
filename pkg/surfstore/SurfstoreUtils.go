@@ -18,7 +18,7 @@ func ClientSync(client RPCClient) {
 		WriteMetaFile(base_dir_files, client.BaseDir)
 	}
 
-	// fmt.Println("Loading base directory state.")
+	fmt.Println("Loading base directory state.")
 	// Capture base directory state <- base_dir_files
 	files, err := ioutil.ReadDir(client.BaseDir)
 	if err != nil {
@@ -98,11 +98,11 @@ func deletedFileUpdates(client RPCClient, local_index map[string]*FileMetaData, 
 		}
 	}
 
-	// fmt.Println("Remote index.db after delete")
-	// client.GetFileInfoMap(&remote_index)
-	// for fname, fmeta := range remote_index {
-	// 	fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
-	// }
+	fmt.Println("Remote index.db after delete")
+	client.GetFileInfoMap(&remote_index)
+	for fname, fmeta := range remote_index {
+		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
+	}
 
 }
 
@@ -124,7 +124,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 		val, ok := local_index[fname]
 		// _, ok2 := baseDir_files[fname]
 
-		// fmt.Println("Checking file: ", fname)
+		fmt.Println("Checking file: ", fname)
 
 		// File in server not present in local index or base dir
 		if !ok {
@@ -134,10 +134,10 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 			// Check for deleted file entry in remote index
 			if len(fmeta.BlockHashList) == 1 && fmeta.BlockHashList[0] == "0" {
 
-				// fmt.Println("\n\n File deleted on server.")
+				fmt.Println("\n\n File deleted on server.")
 
 				if err := os.Remove(ConcatPath(client.BaseDir, fname)); err != nil {
-					// fmt.Println("Deleting local file failed!", err)
+					fmt.Println("Deleting local file failed!", err)
 					newmeta := FileMetaData{Filename: fname,
 						Version:       fmeta.Version,
 						BlockHashList: fmeta.BlockHashList}
@@ -145,7 +145,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 					local_index[fname] = &newmeta
 					baseDir_files[fname] = &newmeta
 				} else {
-					// fmt.Println("File already deleted.")
+					fmt.Println("File already deleted.")
 					newmeta := FileMetaData{Filename: fname,
 						Version:       fmeta.Version,
 						BlockHashList: fmeta.BlockHashList}
@@ -155,7 +155,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 				}
 			} else {
 
-				// fmt.Println("\n\nFile Present on Server, downloading file:", fname)
+				fmt.Println("\n\nFile Present on Server, downloading file:", fname)
 				var file []byte
 				// 1. Download blocks for the file
 
@@ -191,7 +191,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 		} else if ok && fmeta.Version > val.Version {
 
 			// file in server present in local index and has a newer version on server
-			// fmt.Println("file in server present in local index and has a newer version on server")
+			fmt.Println("file in server present in local index and has a newer version on server")
 			if len(fmeta.BlockHashList) == 1 && fmeta.BlockHashList[0] == "0" {
 				if err := os.Remove(ConcatPath(client.BaseDir, fname)); err != nil {
 					fmt.Println("Deleting local file failed!", err)
@@ -202,7 +202,7 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 					local_index[fname] = &newmeta
 					baseDir_files[fname] = &newmeta
 				} else {
-					// fmt.Println("File already deleted.")
+					fmt.Println("File already deleted.")
 					newmeta := FileMetaData{Filename: fname,
 						Version:       fmeta.Version,
 						BlockHashList: fmeta.BlockHashList}
@@ -246,14 +246,14 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 		}
 	}
 	// Save local_index to index.db
-	// fmt.Println("Writing updated metadata after downloading to index.db")
+	fmt.Println("Writing updated metadata after downloading to index.db")
 	WriteMetaFile(local_index, client.BaseDir)
 
-	// fmt.Println("Remote index.db after download")
-	// client.GetFileInfoMap(&remote_index)
-	// for fname, fmeta := range remote_index {
-	// 	fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
-	// }
+	fmt.Println("Remote index.db after download")
+	client.GetFileInfoMap(&remote_index)
+	for fname, fmeta := range remote_index {
+		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
+	}
 
 	return baseDir_files
 
@@ -279,7 +279,7 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 		if !ok {
 			// File in base dir but not on local index or remote index
 
-			// fmt.Println("File not present in local index or remote index")
+			fmt.Println("File not present in local index or remote index")
 			f, err := os.ReadFile(ConcatPath(client.BaseDir, fname))
 			if err != nil {
 				fmt.Println(err)
@@ -296,7 +296,7 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 				}
 			}
 
-			// fmt.Println("Uploading File: ", fname)
+			fmt.Println("Uploading File: ", fname)
 			for first := 0; first < len(f); first += client.BlockSize {
 				last := first + client.BlockSize
 				if last > len(f) {
@@ -314,7 +314,7 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 				}
 			}
 
-			// fmt.Println("Updating server metadata for file.")
+			fmt.Println("Updating server metadata for file.")
 			// Update filemeta data to metastore
 
 			newmeta := &FileMetaData{
@@ -322,7 +322,10 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 				Version:       1,
 				BlockHashList: fmeta.BlockHashList}
 
-			client.UpdateFile(newmeta, &newVersion)
+			updateError := client.UpdateFile(newmeta, &newVersion)
+			if err != nil {
+				fmt.Println("\nClient Update Error: ", updateError)
+			}
 
 			// Update successful --> update local index
 			if newVersion != -1 {
@@ -333,7 +336,7 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 			// File in base dir and server but newer version on local
 			if !Compare(fmeta.BlockHashList, val.BlockHashList) {
 
-				// fmt.Println("Newer Version on Local.")
+				fmt.Println("Newer Version on Local.")
 				f, err := os.ReadFile(ConcatPath(client.BaseDir, fname))
 				if err != nil {
 					fmt.Println(err)
@@ -384,11 +387,11 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 
 	}
 
-	// fmt.Println("Remote index.db after upload")
-	// client.GetFileInfoMap(&remote_index)
-	// for fname, fmeta := range remote_index {
-	// 	fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
-	// }
+	fmt.Println("Remote index.db after upload")
+	client.GetFileInfoMap(&remote_index)
+	for fname, fmeta := range remote_index {
+		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
+	}
 }
 
 // 	} else {
