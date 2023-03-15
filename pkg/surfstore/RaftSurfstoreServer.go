@@ -144,7 +144,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// Check Leader and Crashed states
 	if err := s.checkCrash(ctx); err != nil {
-		return nil, err
+		return &Version{Version: int32(-1)}, err
 	}
 
 	// Append op-entry to our log
@@ -159,6 +159,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// s.isFollowerMutex.Unlock()
 
 	commitChan := make(chan bool, 1)
+	curLogIndex := int64(len(s.log) - 1)
 	s.pendingCommits = append(s.pendingCommits, &commitChan)
 	s.isLeaderMutex.Unlock()
 
@@ -170,7 +171,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	success, err := s.SendHeartbeat(ctx, &emptypb.Empty{})
 	if err != nil {
-		return nil, err
+		return &Version{Version: int32(-1)}, err
 	}
 
 	// // If majority up, then read and return
@@ -187,7 +188,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	for !success.Flag {
 		success, err = s.SendHeartbeat(ctx, &emptypb.Empty{})
 		if err != nil {
-			return nil, err
+			return &Version{Version: int32(-1)}, err
 		}
 	}
 
@@ -196,6 +197,10 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// once committed, apply to the state machine
 
 	if commit {
+		s.isFollowerMutex.Lock()
+		s.commitIndex = curLogIndex
+		s.lastApplied = curLogIndex
+		s.isFollowerMutex.Unlock()
 		return s.metaStore.UpdateFile(ctx, filemeta)
 	}
 
@@ -259,7 +264,6 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 	}
 
 	s.isFollowerMutex.Lock()
-	// curLog := s.log
 	if totalAppends > len(s.raftServerAddrs)/2 {
 		// TODO put on correct channel
 		// for i := s.lastApplied + 1; i <= s.commitIndex; i++ {
@@ -322,14 +326,6 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 	for {
 
-		// if err := s.checkCrash(ctx); err != nil {
-		// 	if err == ERR_SERVER_CRASHED {
-		// 		responses <- false
-		// 		conn.Close()
-		// 		return
-		// 	}
-		// }
-
 		val, err := r.AppendEntries(ctx, &currentInput)
 
 		if err != nil {
@@ -345,10 +341,10 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 		if !val.Success {
 			if val.Term > currentTerm {
 				// Term out of date -> update term
-				s.isFollowerMutex.Lock()
+				s.isLeaderMutex.Lock()
 				s.term = val.Term
 				s.isLeader = false
-				s.isFollowerMutex.Unlock()
+				s.isLeaderMutex.Unlock()
 				responses <- false
 				conn.Close()
 				return
@@ -619,10 +615,10 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 		if !val.Success {
 			if val.Term > currentTerm {
 				// Term out of date -> update term
-				s.isFollowerMutex.Lock()
+				s.isLeaderMutex.Lock()
 				s.term = val.Term
 				s.isLeader = false
-				s.isFollowerMutex.Unlock()
+				s.isLeaderMutex.Unlock()
 				response <- false
 				conn.Close()
 				return
