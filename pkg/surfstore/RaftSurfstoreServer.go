@@ -144,7 +144,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// Check Leader and Crashed states
 	if err := s.checkCrash(ctx); err != nil {
-		return &Version{Version: -1}, err
+		return nil, err
 	}
 
 	// Append op-entry to our log
@@ -158,7 +158,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// send entry to all followers in parallel
 	// s.isFollowerMutex.Unlock()
 
-	commitChan := make(chan bool)
+	commitChan := make(chan bool, 1)
 	s.pendingCommits = append(s.pendingCommits, &commitChan)
 	s.isLeaderMutex.Unlock()
 
@@ -167,26 +167,27 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// keep trying indefinitely (even after responding) ** rely on sendheartbeat
 	// Check if majority of servers are up to query read
+
 	success, err := s.SendHeartbeat(ctx, &emptypb.Empty{})
 	if err != nil {
-		return &Version{Version: -1}, err
+		return nil, err
 	}
 
-	// If majority up, then read and return
-	if success.Flag {
-		commit := <-commitChan
+	// // If majority up, then read and return
+	// if success.Flag {
+	// 	commit := <-commitChan
 
-		// once committed, apply to the state machine
-		if commit {
-			return s.metaStore.UpdateFile(ctx, filemeta)
-		}
-	}
+	// 	// once committed, apply to the state machine
+	// 	if commit {
+	// 		return s.metaStore.UpdateFile(ctx, filemeta)
+	// 	}
+	// }
 
 	// If not, keep sending heartbeats until majority are up
 	for !success.Flag {
 		success, err = s.SendHeartbeat(ctx, &emptypb.Empty{})
 		if err != nil {
-			return &Version{Version: -1}, err
+			return nil, err
 		}
 	}
 
@@ -206,22 +207,24 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 	// TODO: May need to check for server crashing here
 	// if node not leader or leader crashed <- return false
 	if err := s.checkLeaderOnly(ctx); err != nil {
-		// s.isFollowerMutex.Lock()
+		s.isFollowerMutex.Lock()
 		// curLog := s.log
 		// *s.pendingCommits[int64(len(curLog)-1)] <- false
+		*s.pendingCommits[s.lastApplied+1] <- false
 		// TODO update commit Index correctly
 		// s.commitIndex = int64(len(curLog) - 1)
-		// s.isFollowerMutex.Unlock()
+		s.isFollowerMutex.Unlock()
 		return
 	}
 
 	if err := s.checkCrash(ctx); err != nil {
-		// s.isFollowerMutex.Lock()
+		s.isFollowerMutex.Lock()
 		// curLog := s.log
 		// *s.pendingCommits[int64(len(curLog)-1)] <- false
+		*s.pendingCommits[s.lastApplied+1] <- false
 		// TODO update commit Index correctly
 		// s.commitIndex = int64(len(curLog) - 1)
-		// s.isFollowerMutex.Unlock()
+		s.isFollowerMutex.Unlock()
 		return
 	}
 
@@ -259,14 +262,18 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 	// curLog := s.log
 	if totalAppends > len(s.raftServerAddrs)/2 {
 		// TODO put on correct channel
-		for i := s.lastApplied + 1; i <= s.commitIndex; i++ {
-			*s.pendingCommits[i] <- true
-		}
+		// for i := s.lastApplied + 1; i <= s.commitIndex; i++ {
+		// 	*s.pendingCommits[i] <- true
+		// }
+		*s.pendingCommits[s.lastApplied+1] <- true
 		// *s.pendingCommits[int64(len(curLog)-1)] <- true
 		// TODO update commit Index correctly
 		s.commitIndex++
 	} else {
-		// *s.pendingCommits[int64(len(curLog)-1)] <- false
+		// for i := s.lastApplied + 1; i <= s.commitIndex; i++ {
+		// 	*s.pendingCommits[i] <- false
+		// }
+		*s.pendingCommits[s.lastApplied+1] <- false
 		// TODO update commit Index correctly
 		// s.commitIndex = int64(len(curLog) - 1)
 	}
@@ -313,59 +320,59 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 	r := NewRaftSurfstoreClient(conn)
 
-	// for {
+	for {
 
-	// if err := s.checkCrash(ctx); err != nil {
-	// 	if err == ERR_SERVER_CRASHED {
-	// 		responses <- false
-	// 		conn.Close()
-	// 		return
-	// 	}
-	// }
+		// if err := s.checkCrash(ctx); err != nil {
+		// 	if err == ERR_SERVER_CRASHED {
+		// 		responses <- false
+		// 		conn.Close()
+		// 		return
+		// 	}
+		// }
 
-	val, err := r.AppendEntries(ctx, &currentInput)
+		val, err := r.AppendEntries(ctx, &currentInput)
 
-	if err != nil {
-		responses <- false
-		conn.Close()
-		return
-	}
-
-	s.isFollowerMutex.RLock()
-	currentTerm := s.term
-	s.isFollowerMutex.RUnlock()
-
-	if !val.Success {
-		if val.Term > currentTerm {
-			// Term out of date -> update term
-			s.isLeaderMutex.Lock()
-			s.term = val.Term
-			s.isLeader = false
-			s.isLeaderMutex.Unlock()
+		if err != nil {
 			responses <- false
 			conn.Close()
 			return
-		} else {
-			s.isFollowerMutex.Lock()
-			s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-			s.isFollowerMutex.Unlock()
-			responses <- false
-			conn.Close()
-			return
-			// continue
 		}
 
-	} else {
-		// if success from Append Entry -> update nextIndex and matchIndex for the follower
-		s.isFollowerMutex.Lock()
-		s.nextIndex[serverId] = val.MatchedIndex + 1
-		s.matchIndex[serverId] = val.MatchedIndex
-		s.isFollowerMutex.Unlock()
-		responses <- true
-		conn.Close()
-		return
+		s.isFollowerMutex.RLock()
+		currentTerm := s.term
+		s.isFollowerMutex.RUnlock()
+
+		if !val.Success {
+			if val.Term > currentTerm {
+				// Term out of date -> update term
+				s.isFollowerMutex.Lock()
+				s.term = val.Term
+				s.isLeader = false
+				s.isFollowerMutex.Unlock()
+				responses <- false
+				conn.Close()
+				return
+			} else {
+				s.isFollowerMutex.Lock()
+				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+				s.isFollowerMutex.Unlock()
+				// responses <- false
+				// conn.Close()
+				// return
+				continue
+			}
+
+		} else {
+			// if success from Append Entry -> update nextIndex and matchIndex for the follower
+			s.isFollowerMutex.Lock()
+			s.nextIndex[serverId] = val.MatchedIndex + 1
+			s.matchIndex[serverId] = val.MatchedIndex
+			s.isFollowerMutex.Unlock()
+			responses <- true
+			conn.Close()
+			return
+		}
 	}
-	// }
 
 }
 
@@ -588,58 +595,58 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 
 	r := NewRaftSurfstoreClient(conn)
 
-	// for {
-	// if err := s.checkCrash(ctx); err != nil {
-	// 	if err == ERR_SERVER_CRASHED {
-	// 		response <- false
-	// 		conn.Close()
-	// 		return
-	// 	}
-	// }
+	for {
+		// if err := s.checkCrash(ctx); err != nil {
+		// 	if err == ERR_SERVER_CRASHED {
+		// 		response <- false
+		// 		conn.Close()
+		// 		return
+		// 	}
+		// }
 
-	val, err := r.AppendEntries(ctx, dummy)
+		val, err := r.AppendEntries(ctx, dummy)
 
-	if err != nil {
-		response <- false
-		conn.Close()
-		return
-	}
-
-	s.isFollowerMutex.RLock()
-	currentTerm := s.term
-	s.isFollowerMutex.RUnlock()
-
-	if !val.Success {
-		if val.Term > currentTerm {
-			// Term out of date -> update term
-			s.isLeaderMutex.Lock()
-			s.term = val.Term
-			s.isLeader = false
-			s.isLeaderMutex.Unlock()
+		if err != nil {
 			response <- false
 			conn.Close()
 			return
-		} else {
-			s.isFollowerMutex.Lock()
-			s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-			s.isFollowerMutex.Unlock()
-			response <- false
-			conn.Close()
-			return
-			// continue
 		}
 
-	} else {
-		// if success from Append Entry -> update nextIndex and matchIndex for the follower
-		s.isFollowerMutex.Lock()
-		s.nextIndex[serverId] = val.MatchedIndex + 1
-		s.matchIndex[serverId] = val.MatchedIndex
-		s.isFollowerMutex.Unlock()
-		response <- true
-		conn.Close()
-		return
+		s.isFollowerMutex.RLock()
+		currentTerm := s.term
+		s.isFollowerMutex.RUnlock()
+
+		if !val.Success {
+			if val.Term > currentTerm {
+				// Term out of date -> update term
+				s.isFollowerMutex.Lock()
+				s.term = val.Term
+				s.isLeader = false
+				s.isFollowerMutex.Unlock()
+				response <- false
+				conn.Close()
+				return
+			} else {
+				s.isFollowerMutex.Lock()
+				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+				s.isFollowerMutex.Unlock()
+				// response <- false
+				// conn.Close()
+				// return
+				continue
+			}
+
+		} else {
+			// if success from Append Entry -> update nextIndex and matchIndex for the follower
+			s.isFollowerMutex.Lock()
+			s.nextIndex[serverId] = val.MatchedIndex + 1
+			s.matchIndex[serverId] = val.MatchedIndex
+			s.isFollowerMutex.Unlock()
+			response <- true
+			conn.Close()
+			return
+		}
 	}
-	// }
 
 }
 
