@@ -358,7 +358,6 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 				s.isFollowerMutex.Lock()
 				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
 				s.isFollowerMutex.Unlock()
-				conn.Close()
 				continue
 			}
 
@@ -630,7 +629,6 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 				s.isFollowerMutex.Lock()
 				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
 				s.isFollowerMutex.Unlock()
-				conn.Close()
 				continue
 			}
 

@@ -286,7 +286,8 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 			}
 
 			blockmap := make(map[string][]string)
-			client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+			err2 := client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+			fmt.Println("\n----- Error :", err2)
 
 			reverseBlockMap := make(map[string]string)
 			for _, addr := range blockstore_address {
