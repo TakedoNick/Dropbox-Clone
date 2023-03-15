@@ -50,7 +50,7 @@ func NewRaftServer(id int64, config RaftConfig) (*RaftSurfstore, error) {
 		commitIndex:     -1,
 		lastApplied:     -1,
 		isFollowerMutex: &isFollowerMutex,
-		pendingCommits:  make([]*chan bool, 0),
+		pendingCommits:  make([]*chan bool, 0, 10),
 		thisServerAddr:  hostAddr,
 		raftServerAddrs: config.RaftAddrs,
 		thisServerId:    id,
