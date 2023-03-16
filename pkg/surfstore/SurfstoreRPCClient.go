@@ -124,12 +124,13 @@ func (surfClient *RPCClient) GetFileInfoMap(serverFileInfoMap *map[string]*FileM
 
 			conn, err := grpc.Dial(surfClient.MetaStoreAddrs[serverID], grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
-				return err
+				// return err
+				continue
 			}
 
 			r := NewRaftSurfstoreClient(conn)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
 			// fileinfomap := make(map[string]*FileMetaData)
@@ -163,12 +164,12 @@ func (surfClient *RPCClient) UpdateFile(fileMetaData *FileMetaData, latestVersio
 		for serverID := range surfClient.MetaStoreAddrs {
 			conn, err := grpc.Dial(surfClient.MetaStoreAddrs[serverID], grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
-				return err
+				continue
 			}
 
 			r := NewRaftSurfstoreClient(conn)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
 			version, err := r.UpdateFile(ctx, fileMetaData)
@@ -200,12 +201,13 @@ func (surfClient *RPCClient) GetBlockStoreMap(blockHashesIn []string, blockStore
 		for serverID := range surfClient.MetaStoreAddrs {
 			conn, err := grpc.Dial(surfClient.MetaStoreAddrs[serverID], grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
-				return err
+				// return err
+				continue
 			}
 
 			r := NewRaftSurfstoreClient(conn)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
 			blockServertoblockhash, err := r.GetBlockStoreMap(ctx, &BlockHashes{Hashes: blockHashesIn})
@@ -241,12 +243,13 @@ func (surfClient *RPCClient) GetBlockStoreAddrs(blockStoreAddrs *[]string) error
 		for serverID := range surfClient.MetaStoreAddrs {
 			conn, err := grpc.Dial(surfClient.MetaStoreAddrs[serverID], grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
-				return err
+				// return err
+				continue
 			}
 
 			r := NewRaftSurfstoreClient(conn)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
 			b, err := r.GetBlockStoreAddrs(ctx, &emptypb.Empty{})

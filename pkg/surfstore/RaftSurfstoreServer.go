@@ -48,6 +48,11 @@ func (s *RaftSurfstore) GetFileInfoMap(ctx context.Context, empty *emptypb.Empty
 	// Read from metastore
 
 	// Check for leader
+	if err := s.checkLeaderOnly(ctx); err != nil {
+		return nil, err
+	}
+
+	// Check leader crash
 	if err := s.checkCrash(ctx); err != nil {
 		return nil, err
 	}
@@ -80,6 +85,11 @@ func (s *RaftSurfstore) GetBlockStoreMap(ctx context.Context, hashes *BlockHashe
 	// Read from metastore
 
 	// Check for leader
+	if err := s.checkLeaderOnly(ctx); err != nil {
+		return nil, err
+	}
+
+	// Check leader crash
 	if err := s.checkCrash(ctx); err != nil {
 		return nil, err
 	}
@@ -111,6 +121,11 @@ func (s *RaftSurfstore) GetBlockStoreAddrs(ctx context.Context, empty *emptypb.E
 	// Read from metastore
 
 	// Check for leader
+	if err := s.checkLeaderOnly(ctx); err != nil {
+		return nil, err
+	}
+
+	// Check leader crash
 	if err := s.checkCrash(ctx); err != nil {
 		return nil, err
 	}
@@ -142,7 +157,12 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// Write to metastore
 
-	// Check Leader and Crashed states
+	// Check for leader
+	if err := s.checkLeaderOnly(ctx); err != nil {
+		return &Version{Version: int32(-1)}, err
+	}
+
+	// Check leader crash
 	if err := s.checkCrash(ctx); err != nil {
 		return &Version{Version: int32(-1)}, err
 	}
@@ -169,32 +189,35 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// keep trying indefinitely (even after responding) ** rely on sendheartbeat
 	// Check if majority of servers are up to query read
 
-	success, err := s.SendHeartbeat(ctx, &emptypb.Empty{})
-	if err != nil {
-		return &Version{Version: int32(-1)}, err
-	}
+	// if !success.Flag {
+	// 	log.Fatal("Majority servers crashed.")
+	// }
 
-	// // If majority up, then read and return
-	// if success.Flag {
-	// 	commit := <-commitChan
+	// If majority up, then read and return
+	// for {
+	// success, err := s.SendHeartbeat(ctx, &emptypb.Empty{})
+	// if err != nil {
+	// 	return &Version{Version: int32(-1)}, err
+	// }
 
-	// 	// once committed, apply to the state machine
-	// 	if commit {
-	// 		return s.metaStore.UpdateFile(ctx, filemeta)
-	// 	}
+	// if !success.Flag {
+	// 	log.Fatal("Majority servers down.")
+	// }
+
 	// }
 
 	// If not, keep sending heartbeats until majority are up
-	for !success.Flag {
-		success, err = s.SendHeartbeat(ctx, &emptypb.Empty{})
-		if err != nil {
-			return &Version{Version: int32(-1)}, err
-		}
-	}
+
+	// for !success.Flag {
+	// 	success, err = s.SendHeartbeat(ctx, &emptypb.Empty{})
+	// 	if err != nil {
+	// 		return &Version{Version: int32(-1)}, err
+	// 	}
+	// }
 
 	commit := <-commitChan
 
-	// once committed, apply to the state machine
+	// // once committed, apply to the state machine
 
 	if commit {
 		s.isFollowerMutex.Lock()
@@ -202,15 +225,38 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 		s.lastApplied = curLogIndex
 		s.isFollowerMutex.Unlock()
 		return s.metaStore.UpdateFile(ctx, filemeta)
+	} else {
+		// Check for leader
+		if err := s.checkLeaderOnly(ctx); err != nil {
+			return nil, err
+		}
+
+		// Check leader crash
+		if err := s.checkCrash(ctx); err != nil {
+			return nil, err
+		}
+
+		// success, err := s.SendHeartbeat(ctx, &emptypb.Empty{})
+		// if err != nil {
+		// 	return &Version{Version: int32(-1)}, err
+		// }
+
+		// if !success.Flag {
+		// 	log.Fatal("Majority servers down.")
+		// }
+
 	}
 
+	log.Fatal("Majority servers down.")
+
 	return &Version{Version: -1}, fmt.Errorf("server error: error updating file")
+
 }
 
 func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 
 	// TODO: May need to check for server crashing here
-	// if node not leader or leader crashed <- return false
+	// // if node not leader or leader crashed <- return false
 	if err := s.checkLeaderOnly(ctx); err != nil {
 		s.isFollowerMutex.Lock()
 		// curLog := s.log
@@ -306,9 +352,7 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 	nextIndex := s.nextIndex[serverId]
 	currentInput.PrevLogIndex = nextIndex - 1
 
-	if nextIndex == 0 {
-		currentInput.PrevLogTerm = int64(0)
-	} else {
+	if currentInput.PrevLogIndex >= 0 {
 		currentInput.PrevLogTerm = s.log[currentInput.PrevLogIndex].Term
 	}
 
@@ -319,7 +363,9 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 	// TODO check all errors
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Println("Connection Error in sendToFollower: ", err)
+		// log.Println("Connection Error in sendToFollower: ", err)
+		responses <- false
+		return
 	}
 
 	r := NewRaftSurfstoreClient(conn)
@@ -495,7 +541,7 @@ func (s *RaftSurfstore) SetLeader(ctx context.Context, _ *emptypb.Empty) (*Succe
 	leaderLastLogIndex := int64(len(s.log)) - 1
 	for server_no := range serverIPs {
 		s.nextIndex[int64(server_no)] = leaderLastLogIndex + 1
-		s.matchIndex[int64(server_no)] = leaderLastLogIndex
+		s.matchIndex[int64(server_no)] = -1
 	}
 
 	return &Success{Flag: true}, nil
@@ -570,16 +616,14 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 	nextIndex := s.nextIndex[serverId]
 	dummy.PrevLogIndex = nextIndex - 1
 
-	if nextIndex == 0 {
-		dummy.PrevLogTerm = int64(0)
-	} else {
+	if dummy.PrevLogIndex >= 0 {
 		dummy.PrevLogTerm = s.log[dummy.PrevLogIndex].Term
 	}
 
-	lastLogIndex := len(s.log) - 1
-	if lastLogIndex >= int(nextIndex) {
-		dummy.Entries = s.log[nextIndex:]
-	}
+	// lastLogIndex := len(s.log) - 1
+	// if lastLogIndex >= int(nextIndex) {
+	dummy.Entries = s.log[nextIndex:]
+	// }
 
 	s.isFollowerMutex.RUnlock()
 
@@ -587,18 +631,13 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 
 	if err != nil {
 		fmt.Println("Connection Error in Sending Heartbeat: ", err)
+		response <- false
+		return
 	}
 
 	r := NewRaftSurfstoreClient(conn)
 
 	for {
-		// if err := s.checkCrash(ctx); err != nil {
-		// 	if err == ERR_SERVER_CRASHED {
-		// 		response <- false
-		// 		conn.Close()
-		// 		return
-		// 	}
-		// }
 
 		val, err := r.AppendEntries(ctx, dummy)
 
@@ -676,19 +715,20 @@ func (s *RaftSurfstore) checkCrash(ctx context.Context) error {
 	s.isCrashedMutex.RLock()
 	serverCrash := s.isCrashed
 	s.isCrashedMutex.RUnlock()
-	// Leader or not
-	s.isLeaderMutex.RLock()
-	leader := s.isLeader
-	s.isLeaderMutex.RUnlock()
+	// // Leader or not
+	// s.isLeaderMutex.RLock()
+	// leader := s.isLeader
+	// s.isLeaderMutex.RUnlock()
 
-	if serverCrash && !leader {
-		return ERR_SERVER_CRASHED
-	} else if serverCrash && leader {
-		s.isLeaderMutex.Lock()
-		s.isLeader = false
-		s.isLeaderMutex.Unlock()
+	if serverCrash {
 		return ERR_SERVER_CRASHED
 	}
+	// else if serverCrash && leader {
+	// 	s.isLeaderMutex.Lock()
+	// 	s.isLeader = false
+	// 	s.isLeaderMutex.Unlock()
+	// 	return ERR_SERVER_CRASHED
+	// }
 
 	return nil
 }
@@ -698,11 +738,11 @@ func (s *RaftSurfstore) checkLeaderOnly(ctx context.Context) error {
 	leader := s.isLeader
 	s.isLeaderMutex.RUnlock()
 
-	if !leader {
-		return ERR_NOT_LEADER
+	if leader {
+		return nil
 	}
 
-	return nil
+	return ERR_NOT_LEADER
 }
 
 // ========== DO NOT MODIFY BELOW THIS LINE =====================================
