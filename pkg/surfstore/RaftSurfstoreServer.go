@@ -336,8 +336,10 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 		} else {
 			// if success from Append Entry -> update nextIndex and matchIndex for the follower
 			responses <- val
+			s.isLeaderMutex.Lock()
 			s.nextIndex[serverId] = val.MatchedIndex + 1
 			s.matchIndex[serverId] = val.MatchedIndex
+			s.isLeaderMutex.Unlock()
 			conn.Close()
 			return
 		}
@@ -601,8 +603,10 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 		if val.Success {
 			// if success from Append Entry -> update nextIndex and matchIndex for the follower
 			response <- true
+			s.isLeaderMutex.Lock()
 			s.nextIndex[serverId] = val.MatchedIndex + 1
 			s.matchIndex[serverId] = val.MatchedIndex
+			s.isLeaderMutex.Unlock()
 			conn.Close()
 			return
 		} else {
@@ -615,7 +619,9 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 				conn.Close()
 				continue
 			} else {
+				s.isLeaderMutex.Lock()
 				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+				s.isLeaderMutex.Unlock()
 				response <- false
 				conn.Close()
 				continue
