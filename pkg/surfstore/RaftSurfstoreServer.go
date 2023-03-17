@@ -281,6 +281,7 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 	for {
 
+		s.isLeaderMutex.RLock()
 		currentInput := AppendEntryInput{
 			Term:         s.term,
 			PrevLogTerm:  -1,
@@ -296,6 +297,7 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 		}
 
 		currentInput.Entries = s.log[s.nextIndex[serverId]:]
+		s.isLeaderMutex.RUnlock()
 
 		// TODO check all errors
 		conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
