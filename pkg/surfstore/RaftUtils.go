@@ -41,15 +41,12 @@ func NewRaftServer(id int64, config RaftConfig) (*RaftSurfstore, error) {
 	hostAddr := config.RaftAddrs[id]
 
 	isLeaderMutex := sync.RWMutex{}
-	isFollowerMutex := sync.RWMutex{}
 	isCrashedMutex := sync.RWMutex{}
 
 	server := RaftSurfstore{
 		nextIndex:       make(map[int64]int64),
 		matchIndex:      make(map[int64]int64),
 		commitIndex:     -1,
-		lastApplied:     -1,
-		isFollowerMutex: &isFollowerMutex,
 		pendingCommits:  make([]*chan bool, 0),
 		thisServerAddr:  hostAddr,
 		raftServerAddrs: config.RaftAddrs,
