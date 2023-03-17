@@ -252,7 +252,7 @@ func (surfClient *RPCClient) GetBlockStoreAddrs(blockStoreAddrs *[]string) error
 
 		r := NewRaftSurfstoreClient(conn)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
 		b, err := r.GetBlockStoreAddrs(ctx, &emptypb.Empty{})
