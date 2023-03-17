@@ -65,7 +65,10 @@ func deletedFileUpdates(client RPCClient, local_index map[string]*FileMetaData, 
 	// Check if files in base dir changed from local index
 
 	remote_index := make(map[string]*FileMetaData)
-	client.GetFileInfoMap(&remote_index)
+	errL := client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 
 	// var blockstore_address string
 
@@ -87,7 +90,10 @@ func deletedFileUpdates(client RPCClient, local_index map[string]*FileMetaData, 
 					Version:       local_index[fname].Version + 1,
 					BlockHashList: []string{"0"}}
 
-				client.UpdateFile(fmeta, &newVersion)
+				errL := client.UpdateFile(fmeta, &newVersion)
+				if errL != nil {
+					log.Fatal(errL)
+				}
 				if newVersion != -1 {
 					local_index[fname] = fmeta
 					WriteMetaFile(local_index, client.BaseDir)
@@ -99,7 +105,10 @@ func deletedFileUpdates(client RPCClient, local_index map[string]*FileMetaData, 
 	}
 
 	fmt.Println("Remote index.db after delete")
-	client.GetFileInfoMap(&remote_index)
+	errL = client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 	for fname, fmeta := range remote_index {
 		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
 	}
@@ -109,11 +118,17 @@ func deletedFileUpdates(client RPCClient, local_index map[string]*FileMetaData, 
 func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, baseDir_files map[string]*FileMetaData) map[string]*FileMetaData {
 
 	remote_index := make(map[string]*FileMetaData)
-	client.GetFileInfoMap(&remote_index)
+	errL := client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 
 	var blockstore_address []string
 
-	client.GetBlockStoreAddrs(&blockstore_address)
+	errL = client.GetBlockStoreAddrs(&blockstore_address)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 
 	fmt.Println("Len of remote_index: ", len(remote_index))
 
@@ -160,7 +175,10 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 				// 1. Download blocks for the file
 
 				blockmap := make(map[string][]string)
-				client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+				errL := client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+				if errL != nil {
+					log.Fatal(errL)
+				}
 
 				reverseBlockMap := make(map[string]string)
 				for _, addr := range blockstore_address {
@@ -215,7 +233,10 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 				var file []byte
 				// 1. Download blocks for the file
 				blockmap := make(map[string][]string)
-				client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+				errL := client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+				if errL != nil {
+					log.Fatal(errL)
+				}
 
 				reverseBlockMap := make(map[string]string)
 				for _, addr := range blockstore_address {
@@ -250,7 +271,10 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 	WriteMetaFile(local_index, client.BaseDir)
 
 	fmt.Println("Remote index.db after download")
-	client.GetFileInfoMap(&remote_index)
+	errL = client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 	for fname, fmeta := range remote_index {
 		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
 	}
@@ -262,11 +286,17 @@ func downloadFromServer(client RPCClient, local_index map[string]*FileMetaData, 
 func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, baseDir_files map[string]*FileMetaData) {
 
 	remote_index := make(map[string]*FileMetaData)
-	client.GetFileInfoMap(&remote_index)
+	errL := client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 
 	var blockstore_address []string
 
-	client.GetBlockStoreAddrs(&blockstore_address)
+	errL = client.GetBlockStoreAddrs(&blockstore_address)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 
 	// Check if New files in the base dir not present in local index or remote index
 	for fname, fmeta := range baseDir_files {
@@ -286,8 +316,11 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 			}
 
 			blockmap := make(map[string][]string)
-			err2 := client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
-			fmt.Println("\n----- Error :", err2)
+			errL := client.GetBlockStoreMap(fmeta.BlockHashList, &blockmap)
+			if errL != nil {
+				log.Fatal(errL)
+			}
+			// fmt.Println("\n----- Error :", err2)
 
 			reverseBlockMap := make(map[string]string)
 			for _, addr := range blockstore_address {
@@ -326,6 +359,7 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 			updateError := client.UpdateFile(newmeta, &newVersion)
 			if err != nil {
 				fmt.Println("\nClient Update Error: ", updateError)
+				log.Fatal(updateError)
 			}
 
 			// Update successful --> update local index
@@ -344,7 +378,10 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 				}
 
 				blockmap := make(map[string][]string)
-				client.GetBlockStoreMap(files2blocks2hashes(client, fname), &blockmap)
+				errL := client.GetBlockStoreMap(files2blocks2hashes(client, fname), &blockmap)
+				if errL != nil {
+					log.Fatal(errL)
+				}
 
 				reverseBlockMap := make(map[string]string)
 				for _, addr := range blockstore_address {
@@ -372,7 +409,10 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 					Version:       local_index[fname].Version + 1,
 					BlockHashList: files2blocks2hashes(client, fname)}
 
-				client.UpdateFile(newmeta, &newVersion)
+				errL = client.UpdateFile(newmeta, &newVersion)
+				if errL != nil {
+					log.Fatal(errL)
+				}
 
 				// Update successful --> update local index
 				if newVersion != -1 {
@@ -389,7 +429,10 @@ func uploadToServer(client RPCClient, local_index map[string]*FileMetaData, base
 	}
 
 	fmt.Println("Remote index.db after upload")
-	client.GetFileInfoMap(&remote_index)
+	errL = client.GetFileInfoMap(&remote_index)
+	if errL != nil {
+		log.Fatal(errL)
+	}
 	for fname, fmeta := range remote_index {
 		fmt.Println(fname, fmeta.Version, len(fmeta.BlockHashList))
 	}
