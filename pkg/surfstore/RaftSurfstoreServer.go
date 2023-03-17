@@ -189,6 +189,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// // once committed, apply to the state machine
 
 	if commit {
+		// Check leader
 		if err := s.checkLeaderOnly(ctx); err != nil {
 			return nil, err
 		}
@@ -244,6 +245,7 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 
 		totalCommits := 1
 
+		// blocking when majority not up
 		for {
 			response, ok := <-responses
 
@@ -302,6 +304,7 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 		val, err := r.AppendEntries(ctx, &currentInput)
 		// check if follower crashed <- since grpc.Dial wont throw a crash error as server is not actually crashed
 		if err != nil {
+			conn.Close()
 			continue
 		}
 
@@ -323,7 +326,9 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 				conn.Close()
 				continue
 			} else {
+				s.isLeaderMutex.Lock()
 				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+				s.isLeaderMutex.Unlock()
 				conn.Close()
 				continue
 			}
@@ -374,8 +379,6 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 		s.isLeader = false
 		s.isLeaderMutex.Unlock()
 
-		// if a followers term is lower than input.Term, we need to update its term
-		s.term = input.Term
 	} else if input.Term < currentTerm {
 		// Reply false if term < currentTerm
 		output.Term = currentTerm
@@ -501,14 +504,6 @@ func (s *RaftSurfstore) SendHeartbeat(ctx context.Context, _ *emptypb.Empty) (*S
 	}
 
 	s.isLeaderMutex.RLock()
-	dummyAppendEntriesInput := AppendEntryInput{
-		Term: s.term,
-		// TODO put the right values
-		PrevLogTerm:  -1,
-		PrevLogIndex: -1,
-		Entries:      make([]*UpdateOperation, 0),
-		LeaderCommit: s.commitIndex,
-	}
 	ips := s.raftServerAddrs
 	id := s.thisServerId
 	s.isLeaderMutex.RUnlock()
@@ -520,7 +515,31 @@ func (s *RaftSurfstore) SendHeartbeat(ctx context.Context, _ *emptypb.Empty) (*S
 			continue
 		}
 
-		go s.sendHeartbeatInParallel(ctx, int64(serverId), &dummyAppendEntriesInput, heartbeatFromFollower)
+		s.isLeaderMutex.RLock()
+		leaderTerm := s.term
+		leaderCommit := s.commitIndex
+
+		PrevLogIndex := s.matchIndex[int64(serverId)]
+		PrevLogTerm := int64(-1)
+		if PrevLogIndex >= 0 {
+			PrevLogTerm = s.log[PrevLogIndex].Term
+		}
+		// lastLogIndex := len(s.log) - 1
+		// if lastLogIndex >= int(nextIndex) {
+		Entries := s.log[s.nextIndex[int64(serverId)]:]
+
+		dummyEntry := &AppendEntryInput{
+			Term: leaderTerm,
+			// TODO put the right values
+			PrevLogTerm:  PrevLogTerm,
+			PrevLogIndex: PrevLogIndex,
+			Entries:      Entries,
+			LeaderCommit: leaderCommit,
+		}
+
+		s.isLeaderMutex.RUnlock()
+
+		go s.sendHeartbeatInParallel(ctx, int64(serverId), dummyEntry, heartbeatFromFollower)
 	}
 
 	totalResponses := 1
@@ -549,19 +568,7 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 
 	// TODO: May need to keep trying to sendHeartBeats indefinitely
 	for {
-		dummy.PrevLogIndex = int64(s.matchIndex[serverId])
-
-		if dummy.PrevLogIndex >= 0 {
-			dummy.PrevLogTerm = s.log[dummy.PrevLogIndex].Term
-		}
-
-		// lastLogIndex := len(s.log) - 1
-		// if lastLogIndex >= int(nextIndex) {
-		dummy.Entries = s.log[s.nextIndex[serverId]:]
-		// }
-
 		conn, err := grpc.Dial(s.raftServerAddrs[serverId], grpc.WithTransportCredentials(insecure.NewCredentials()))
-
 		// Dial error
 		if err != nil {
 			response <- false
@@ -580,6 +587,13 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 			response <- false
 			conn.Close()
 			continue
+		}
+
+		// check if leader crashed
+		if err2 := s.checkCrash(ctx); err2 != nil {
+			response <- false
+			conn.Close()
+			return
 		}
 
 		currentTerm := s.term
