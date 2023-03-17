@@ -156,24 +156,30 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// Check for leader
 	if err := s.checkLeaderOnly(ctx); err != nil {
-		return &Version{Version: int32(-1)}, err
+		return nil, err
 	}
 
 	// Check leader crash
 	if err := s.checkCrash(ctx); err != nil {
-		return &Version{Version: int32(-1)}, err
+		return nil, err
 	}
 
+	// time.Sleep(100 * time.Millisecond)
 	// Append op-entry to our log
-	s.isLeaderMutex.Lock()
+	// s.isLeaderMutex.Lock()
+	L := s.isLeaderMutex.TryLock()
+
+	for !L {
+		L = s.isLeaderMutex.TryLock()
+	}
 	updateOp := UpdateOperation{
 		Term:         s.term,
 		FileMetaData: filemeta}
 
 	s.log = append(s.log, &updateOp)
 
+	// s.isLeaderMutex.Lock()
 	// send entry to all followers in parallel
-	// s.isFollowerMutex.Unlock()
 
 	commitChan := make(chan bool)
 	// curLogIndex := int64(len(s.log) - 1)
@@ -182,6 +188,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// send entry to all followers in parallel
 	go s.sendToAllFollowersInParallel(ctx)
+	// s.isLeaderMutex.Unlock()
 
 	// Channel innately blocks until majority back up
 	commit := <-commitChan
