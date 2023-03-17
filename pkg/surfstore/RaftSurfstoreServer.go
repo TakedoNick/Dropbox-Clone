@@ -166,12 +166,8 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 
 	// time.Sleep(100 * time.Millisecond)
 	// Append op-entry to our log
-	// s.isLeaderMutex.Lock()
-	L := s.isLeaderMutex.TryLock()
-
-	for !L {
-		L = s.isLeaderMutex.TryLock()
-	}
+	s.isLeaderMutex.Lock()
+	
 	updateOp := UpdateOperation{
 		Term:         s.term,
 		FileMetaData: filemeta}
