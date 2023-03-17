@@ -270,8 +270,9 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 				// s.isLeaderMutexAppend.Lock()
 				s.isLeaderMutexAppend.Lock()
 				s.commitIndex += 1
+				commitIndex := s.commitIndex
 				s.isLeaderMutexAppend.Unlock()
-				*s.pendingCommits[s.commitIndex] <- true
+				*s.pendingCommits[commitIndex] <- true
 				// s.isLeaderMutexAppend.Unlock()
 				break
 			}
@@ -418,6 +419,7 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 		return nil, err
 	}
 
+	s.isLeaderMutexAppend.RLock()
 	currentTerm := s.term
 
 	// default output
@@ -428,12 +430,16 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 		MatchedIndex: -1,
 	}
 
+	followerLog := s.log
+
+	s.isLeaderMutexAppend.RUnlock()
+
 	// 1. Reply false if term < currentTerm (§5.1)
 	if input.Term > currentTerm {
 		// if Leader has a lower term then change it to a follower
-		s.isLeaderMutex.Lock()
+		s.isLeaderMutexAppend.Lock()
 		s.isLeader = false
-		s.isLeaderMutex.Unlock()
+		s.isLeaderMutexAppend.Unlock()
 
 	} else if input.Term < currentTerm {
 		// Reply false if term < currentTerm
@@ -447,8 +453,8 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 	// s.log has no entry at PrevLogIndex -> PrevLogIndex > the length of the log array
 	// `>=` because len(array) > last_index(array)
 	if input.PrevLogIndex >= 0 {
-		if input.PrevLogIndex >= int64(len(s.log)) || s.log[input.PrevLogIndex].Term != input.PrevLogTerm {
-			output.Term = s.term
+		if input.PrevLogIndex >= int64(len(followerLog)) || followerLog[input.PrevLogIndex].Term != input.PrevLogTerm {
+			output.Term = currentTerm
 			output.MatchedIndex = -1
 			output.Success = false
 			return output, nil
@@ -474,29 +480,43 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 	// 	s.log = s.log[:input.PrevLogIndex+1]
 	// }
 
-	if int64(len(s.log)-1) > input.PrevLogIndex {
+	if int64(len(followerLog)-1) > input.PrevLogIndex {
+		s.isLeaderMutexAppend.Lock()
 		s.log = s.log[:input.PrevLogIndex+1]
+		s.isLeaderMutexAppend.Unlock()
 	}
 
+	// s.isLeaderMutexAppend.Lock()
+
 	// 4. Append any new entries not already in the log
+	s.isLeaderMutexAppend.Lock()
 	s.log = append(s.log, input.Entries...)
 
 	// Update term of the follower
 	s.term = input.Term
+	s.isLeaderMutexAppend.Unlock()
 
 	// 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	leaderCommit := input.LeaderCommit
+	s.isLeaderMutexAppend.RLock()
 	commitIndex := s.commitIndex
+	newLog := s.log
 	indexOfLastEntry := int64(len(s.log) - 1)
+	s.isLeaderMutexAppend.RUnlock()
 	if leaderCommit > commitIndex {
 		newIndex := int64(math.Min(float64(leaderCommit), float64(indexOfLastEntry)))
 
-		for i := s.commitIndex + 1; i <= newIndex; i++ {
-			entry := s.log[i]
+		for i := commitIndex + 1; i <= newIndex; i++ {
+
+			entry := newLog[i]
 			s.metaStore.UpdateFile(ctx, entry.FileMetaData)
 		}
+		s.isLeaderMutexAppend.Lock()
 		s.commitIndex = newIndex
+		s.isLeaderMutexAppend.Unlock()
 	}
+
+	// s.isLeaderMutexAppend.Unlock()
 
 	// for s.lastApplied < input.LeaderCommit {
 
