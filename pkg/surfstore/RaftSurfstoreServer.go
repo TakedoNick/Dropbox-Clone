@@ -217,6 +217,7 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 
 	for {
 
+		// s.isLeaderMutex.RLock()
 		currCommitIndex := s.commitIndex
 		lastLogIndex := int64(len(s.log) - 1)
 		ips := s.raftServerAddrs
@@ -229,6 +230,7 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 
 		nextCommitIndex := currCommitIndex + 1
 		lastReplicatedIndex := int64(s.matchIndex[serverID])
+		// s.isLeaderMutex.RUnlock()
 
 		responses := make(chan *AppendEntryOutput, len(ips)-1)
 
@@ -264,8 +266,10 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 			}
 
 			if totalCommits > len(ips)/2 {
+				// s.isLeaderMutexAppend.Lock()
 				*s.pendingCommits[nextCommitIndex] <- true
 				s.commitIndex = nextCommitIndex
+				// s.isLeaderMutexAppend.Unlock()
 				break
 			}
 		}
@@ -277,7 +281,9 @@ func (s *RaftSurfstore) sendToAllFollowersInParallel(ctx context.Context) {
 func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr string, indexToCommit int64, responses chan *AppendEntryOutput) {
 
 	// Set the index to commit as the followers nextIndex
+	s.isLeaderMutexAppend.Lock()
 	s.nextIndex[serverId] = indexToCommit
+	s.isLeaderMutexAppend.Unlock()
 
 	for {
 
