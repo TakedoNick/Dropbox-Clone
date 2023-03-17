@@ -42,23 +42,24 @@ func NewRaftServer(id int64, config RaftConfig) (*RaftSurfstore, error) {
 
 	isLeaderMutex := sync.RWMutex{}
 	isCrashedMutex := sync.RWMutex{}
+	appendMutex := sync.RWMutex{}
 
 	server := RaftSurfstore{
-		nextIndex:      make(map[int64]int64),
-		matchIndex:     make(map[int64]int64),
-		commitIndex:    -1,
-		pendingCommits: make([]*chan bool, 0),
-		// pendingCommits: make([]chan bool,
-		thisServerAddr:  hostAddr,
-		raftServerAddrs: config.RaftAddrs,
-		thisServerId:    id,
-		isLeader:        false,
-		isLeaderMutex:   &isLeaderMutex,
-		term:            0,
-		metaStore:       NewMetaStore(config.BlockAddrs),
-		log:             make([]*UpdateOperation, 0),
-		isCrashed:       false,
-		isCrashedMutex:  &isCrashedMutex,
+		nextIndex:           make(map[int64]int64),
+		matchIndex:          make(map[int64]int64),
+		commitIndex:         -1,
+		pendingCommits:      make([]*chan bool, 0),
+		isLeaderMutexAppend: &appendMutex,
+		thisServerAddr:      hostAddr,
+		raftServerAddrs:     config.RaftAddrs,
+		thisServerId:        id,
+		isLeader:            false,
+		isLeaderMutex:       &isLeaderMutex,
+		term:                0,
+		metaStore:           NewMetaStore(config.BlockAddrs),
+		log:                 make([]*UpdateOperation, 0),
+		isCrashed:           false,
+		isCrashedMutex:      &isCrashedMutex,
 	}
 
 	return &server, nil

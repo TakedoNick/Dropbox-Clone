@@ -21,7 +21,8 @@ type RaftSurfstore struct {
 	isLeaderMutex *sync.RWMutex
 
 	// Followers
-	commitIndex int64
+	commitIndex         int64
+	isLeaderMutexAppend *sync.RWMutex
 
 	// All Servers
 	thisServerAddr  string
@@ -327,25 +328,25 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 		if val != nil {
 			if val.Success {
 				responses <- val
-				s.isLeaderMutex.Lock()
+				s.isLeaderMutexAppend.Lock()
 				s.nextIndex[serverId] = val.MatchedIndex + 1
 				s.matchIndex[serverId] = val.MatchedIndex
-				s.isLeaderMutex.Unlock()
+				s.isLeaderMutexAppend.Unlock()
 				conn.Close()
 				return
 			} else {
 				if val.Term > currentTerm {
 					// Term out of date -> update term
-					s.isLeaderMutex.Lock()
+					s.isLeaderMutexAppend.Lock()
 					s.term = val.Term
 					s.isLeader = false
-					s.isLeaderMutex.Unlock()
+					s.isLeaderMutexAppend.Unlock()
 					conn.Close()
 					continue
 				} else {
-					s.isLeaderMutex.Lock()
+					s.isLeaderMutexAppend.Lock()
 					s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-					s.isLeaderMutex.Unlock()
+					s.isLeaderMutexAppend.Unlock()
 					conn.Close()
 					continue
 				}
@@ -647,26 +648,26 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 			if val.Success {
 				// if success from Append Entry -> update nextIndex and matchIndex for the follower
 				response <- true
-				s.isLeaderMutex.Lock()
+				s.isLeaderMutexAppend.Lock()
 				s.nextIndex[serverId] = val.MatchedIndex + 1
 				s.matchIndex[serverId] = val.MatchedIndex
-				s.isLeaderMutex.Unlock()
+				s.isLeaderMutexAppend.Unlock()
 				conn.Close()
 				return
 			} else {
 				if val.Term > currentTerm {
 					response <- false
-					s.isLeaderMutex.Lock()
+					s.isLeaderMutexAppend.Lock()
 					s.term = val.Term
 					s.isLeader = false
-					s.isLeaderMutex.Unlock()
+					s.isLeaderMutexAppend.Unlock()
 					conn.Close()
 					continue
 				} else {
 					response <- false
-					s.isLeaderMutex.Lock()
+					s.isLeaderMutexAppend.Lock()
 					s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-					s.isLeaderMutex.Unlock()
+					s.isLeaderMutexAppend.Unlock()
 					conn.Close()
 					continue
 				}
