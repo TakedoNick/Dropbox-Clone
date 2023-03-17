@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -167,7 +168,7 @@ func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) 
 	// time.Sleep(100 * time.Millisecond)
 	// Append op-entry to our log
 	s.isLeaderMutex.Lock()
-	
+
 	updateOp := UpdateOperation{
 		Term:         s.term,
 		FileMetaData: filemeta}
@@ -304,9 +305,13 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 		r := NewRaftSurfstoreClient(conn)
 
-		val, err := r.AppendEntries(ctx, &currentInput)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
+		defer cancel2()
+
+		val, err := r.AppendEntries(ctx2, &currentInput)
 		// check if follower crashed <- since grpc.Dial wont throw a crash error as server is not actually crashed
 		if err != nil {
+			// time.Sleep(1 * time.Second)
 			conn.Close()
 			continue
 		}
@@ -319,33 +324,67 @@ func (s *RaftSurfstore) sendToFollower(ctx context.Context, serverId int64, addr
 
 		currentTerm := s.term
 
-		if !val.Success {
-			if val.Term > currentTerm {
-				// Term out of date -> update term
+		if val != nil {
+			if val.Success {
+				responses <- val
 				s.isLeaderMutex.Lock()
-				s.term = val.Term
-				s.isLeader = false
+				s.nextIndex[serverId] = val.MatchedIndex + 1
+				s.matchIndex[serverId] = val.MatchedIndex
 				s.isLeaderMutex.Unlock()
 				conn.Close()
-				continue
+				return
 			} else {
-				s.isLeaderMutex.Lock()
-				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-				s.isLeaderMutex.Unlock()
-				conn.Close()
-				continue
+				if val.Term > currentTerm {
+					// Term out of date -> update term
+					s.isLeaderMutex.Lock()
+					s.term = val.Term
+					s.isLeader = false
+					s.isLeaderMutex.Unlock()
+					conn.Close()
+					continue
+				} else {
+					s.isLeaderMutex.Lock()
+					s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+					s.isLeaderMutex.Unlock()
+					conn.Close()
+					continue
+				}
 			}
 
 		} else {
-			// if success from Append Entry -> update nextIndex and matchIndex for the follower
-			responses <- val
-			s.isLeaderMutex.Lock()
-			s.nextIndex[serverId] = val.MatchedIndex + 1
-			s.matchIndex[serverId] = val.MatchedIndex
-			s.isLeaderMutex.Unlock()
+			// Follower Server crash, wait and retry
+			// time.Sleep(1 * time.Second)
 			conn.Close()
-			return
+			continue
 		}
+
+		// if !val.Success {
+		// 	if val.Term > currentTerm {
+		// 		// Term out of date -> update term
+		// 		s.isLeaderMutex.Lock()
+		// 		s.term = val.Term
+		// 		s.isLeader = false
+		// 		s.isLeaderMutex.Unlock()
+		// 		conn.Close()
+		// 		continue
+		// 	} else {
+		// 		s.isLeaderMutex.Lock()
+		// 		s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+		// 		s.isLeaderMutex.Unlock()
+		// 		conn.Close()
+		// 		continue
+		// 	}
+
+		// } else {
+		// 	// if success from Append Entry -> update nextIndex and matchIndex for the follower
+		// 	responses <- val
+		// 	s.isLeaderMutex.Lock()
+		// 	s.nextIndex[serverId] = val.MatchedIndex + 1
+		// 	s.matchIndex[serverId] = val.MatchedIndex
+		// 	s.isLeaderMutex.Unlock()
+		// 	conn.Close()
+		// 	return
+		// }
 	}
 
 }
@@ -603,32 +642,40 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 
 		currentTerm := s.term
 
-		if val.Success {
-			// if success from Append Entry -> update nextIndex and matchIndex for the follower
-			response <- true
-			s.isLeaderMutex.Lock()
-			s.nextIndex[serverId] = val.MatchedIndex + 1
-			s.matchIndex[serverId] = val.MatchedIndex
-			s.isLeaderMutex.Unlock()
-			conn.Close()
-			return
-		} else {
-			if val.Term > currentTerm {
-				response <- false
+		if val != nil {
+
+			if val.Success {
+				// if success from Append Entry -> update nextIndex and matchIndex for the follower
+				response <- true
 				s.isLeaderMutex.Lock()
-				s.term = val.Term
-				s.isLeader = false
+				s.nextIndex[serverId] = val.MatchedIndex + 1
+				s.matchIndex[serverId] = val.MatchedIndex
 				s.isLeaderMutex.Unlock()
 				conn.Close()
-				continue
+				return
 			} else {
-				s.isLeaderMutex.Lock()
-				s.nextIndex[serverId] = s.nextIndex[serverId] - 1
-				s.isLeaderMutex.Unlock()
-				response <- false
-				conn.Close()
-				continue
+				if val.Term > currentTerm {
+					response <- false
+					s.isLeaderMutex.Lock()
+					s.term = val.Term
+					s.isLeader = false
+					s.isLeaderMutex.Unlock()
+					conn.Close()
+					continue
+				} else {
+					s.isLeaderMutex.Lock()
+					s.nextIndex[serverId] = s.nextIndex[serverId] - 1
+					s.isLeaderMutex.Unlock()
+					response <- false
+					conn.Close()
+					continue
+				}
 			}
+		} else {
+			// time.Sleep(1 * time.Second)
+			response <- false
+			conn.Close()
+			continue
 		}
 	}
 
