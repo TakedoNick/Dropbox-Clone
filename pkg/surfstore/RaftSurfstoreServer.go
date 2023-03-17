@@ -663,10 +663,10 @@ func (s *RaftSurfstore) sendHeartbeatInParallel(ctx context.Context, serverId in
 					conn.Close()
 					continue
 				} else {
+					response <- false
 					s.isLeaderMutex.Lock()
 					s.nextIndex[serverId] = s.nextIndex[serverId] - 1
 					s.isLeaderMutex.Unlock()
-					response <- false
 					conn.Close()
 					continue
 				}
