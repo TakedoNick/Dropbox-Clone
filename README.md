@@ -1,3 +1,14 @@
+<div align="center">
+  <h1>SurfStore</h1>
+</div>
+
+<div align="center">
+  <h4><i>A DropBox Clone</i></h4>
+</div>
+
+
+
+
 ## Usage
 1. Run your server using this:
 ```shell
