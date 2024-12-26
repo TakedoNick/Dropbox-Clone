@@ -6,8 +6,15 @@
   <h4><i>A DropBox Clone</i></h4>
 </div>
 
+SurfStore is a lightweight, distributed cloud storage application inspired by Dropbox, written in Go. It demonstrates the fundamental principles of distributed systems, such as consistency, fault tolerance, and scalability, through its simple and modular design. SurfStore allows users to store, retrieve, and synchronize files seamlessly across multiple clients, simulating the core functionalities of a file-sharing and cloud storage service. SurfStore encapsulates the following principles:
 
+•	**File Synchronization**: Synchronize files between local directories and the cloud storage seamlessly.
 
+•	**Distributed Architecture**: Built with a modular structure consisting of clients, servers, and metadata management.
+
+•	**Fault Tolerance**: Ensures data reliability and availability even in the event of server failures.
+
+•	**Version Control**: Maintains a version history for files to handle conflicts and data consistency.
 
 ## Usage
 1. Run your server using this:
