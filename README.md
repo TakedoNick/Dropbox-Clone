@@ -6,7 +6,7 @@
   <h4><i>An Open Sourced DropBox Clone</i></h4>
 </div>
 
-SurfStore is a lightweight, distributed cloud storage application inspired by Dropbox, written in Go. It demonstrates the fundamental principles of distributed systems, such as consistency, fault tolerance, and scalability, through its simple and modular design. SurfStore allows users to store, retrieve, and synchronize files seamlessly across multiple clients, simulating the core functionalities of a file-sharing and cloud storage service. SurfStore encapsulates the following principles:
+OpenBox is a lightweight, distributed cloud storage application inspired by Dropbox, written in Go. It demonstrates the fundamental principles of distributed systems, such as consistency, fault tolerance, and scalability, through its simple and modular design. OpenBox allows users to store, retrieve, and synchronize files seamlessly across multiple clients, simulating the core functionalities of a file-sharing and cloud storage service. OpenBox encapsulates the following principles:
 
 •	**File Synchronization**: Synchronize files between local directories and the cloud storage seamlessly.
 
